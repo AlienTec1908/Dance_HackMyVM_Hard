@@ -1,0 +1,296 @@
+﻿﻿﻿<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dance - HackMyVM - Hard - Bericht</title> <!-- Titel angepasst -->
+    <link rel="stylesheet" href="style.css">
+	<link rel="stylesheet" href="../../horizontale-navbar.css"> <!-- Pfad beibehalten -->
+    <link href="https://fonts.googleapis.com/css?family=Lato:300,400,700&display=swap" rel="stylesheet">
+</head>
+ <body>
+ 
+    <div class="header-bg">
+        <h1>Dance - HackMyVM - Hard - Bericht</h1> <!-- Titel angepasst -->
+        <div class="level-container">
+            <h2>Hard</h2> <!-- Schwierigkeitsgrad ohne Inline-Style, CSS handhabt Farbe (Rot) -->
+            <div class="circle"> <!-- Kreis-CSS wird 'Hard' (Rot) handhaben -->
+                <div class="segment segment-1"></div>
+                <div class="segment segment-2"></div>
+                <div class="segment segment-3"></div>
+                <div class="inner"></div> <!-- Hintergrundfarbe wird durch CSS gesetzt -->
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <section class="tools-used">
+            <h2>Verwendete Tools</h2>
+            <div class="tools-grid">
+                 <div class="tool-item">arp-scan</div>
+                 <div class="tool-item">nmap</div>
+                 <div class="tool-item">wget</div>
+                 <div class="tool-item">unzip</div>
+                 <div class="tool-item">cd</div>
+                 <div class="tool-item">cat</div>
+                 <div class="tool-item">ssh</div>
+                 <div class="tool-item">su</div>
+                 <div class="tool-item">sudo</div>
+                 <div class="tool-item">espeak</div>
+                 <div class="tool-item">ls</div>
+            </div>
+        </section>
+
+        <section class="toc">
+            <h2>Inhaltsverzeichnis</h2>
+            <ul>
+                <li><a href="#reconnaissance">Reconnaissance</a></li>
+                <li><a href="#web-lfi-exploitation">Web LFI Exploitation & Credential Discovery</a></li>
+                <li><a href="#initial-access">Initial Access (SSH as aria)</a></li>
+                <li><a href="#privilege-escalation-aria">Privilege Escalation (aria -> alba)</a></li>
+                <li><a href="#privilege-escalation-alba">Privilege Escalation (alba -> root)</a></li>
+                <li><a href="#proof-of-concept">Proof of Concept (Sudo Espeak LFI)</a></li>
+                <li><a href="#flags">Flags</a></li>
+            </ul>
+        </section>
+
+        <section id="reconnaissance">
+            <h2>Reconnaissance</h2>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">arp-scan -l</span></div>
+                    <pre><span class="command">192.168.2.158	08:00:27:e6:ca:a3	PCS Systemtechnik GmbH</span></pre>
+                </div>
+            </div>
+             <p class="analysis"><strong>Analyse:** Der Befehl `arp-scan -l` wird verwendet, um das lokale Netzwerksegment mittels ARP-Anfragen nach aktiven Geräten zu durchsuchen.</p>
+             <p class="evaluation">**Bewertung:** Ein Host mit der IP-Adresse `192.168.2.158` wird identifiziert. Die MAC-Adresse (`08:00:27:...`) weist auf eine VirtualBox VM hin. Dies ist das Zielsystem.</p>
+             <p class="recommendation">**Empfehlung (Pentester):** Ziel-IP `192.168.2.158` notieren und mit Port-Scanning (Nmap) fortfahren.<br>**Empfehlung (Admin):** Standard-Netzwerkaufklärung. Fokus auf Absicherung der Dienste.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">nmap -sS -sC -T5 -A 192.168.2.158 -p-</span></div>
+                     <pre>
+Starting Nmap 7.93 ( https://nmap.org ) at 2022-10-20 10:29 CEST
+Nmap scan report for dance (192.168.2.158)
+Host is up (0.00015s latency).
+Not shown: 65532 closed tcp ports (reset)
+PORT   STATE SERVICE VERSION
+<span class="command">21/tcp open  ftp     vsftpd 3.0.3</span>
+| ftp-syst:
+[...]
+|_ftp-anon: <span class="password">Anonymous FTP login allowed (FTP code 230)</span>
+<span class="command">22/tcp open  ssh     OpenSSH 8.4p1 Debian 5 (protocol 2.0)</span>
+| ssh-hostkey:
+[...]
+<span class="command">80/tcp open  http    nginx 1.18.0</span>
+|_http-title: Site doesn't have a title (text/html).
+|_http-server-header: nginx/1.18.0
+MAC Address: 08:00:27:E6:CA:A3 (Oracle VirtualBox virtual NIC)
+[...]
+OS details: Linux 4.15 - 5.6
+Service Info: OSs: Unix, Linux; CPE: cpe:/o:linux:linux_kernel
+
+TRACEROUTE
+HOP RTT     ADDRESS
+1   0.15 ms dance (192.168.2.158)
+
+Nmap done: 1 IP address (1 host up) scanned in X.XX seconds</pre>
+                </div>
+            </div>
+             <p class="analysis">**Analyse:** Ein umfassender Nmap-Scan (`-sS`, `-sC`, `-T5`, `-A`, `-p-`) wird auf `192.168.2.158` (dance) durchgeführt.</p>
+             <p class="evaluation">**Bewertung:** Drei offene TCP-Ports werden identifiziert:
+*   **Port 21 (FTP):** vsftpd 3.0.3. Das Nmap-Skript `ftp-anon` meldet, dass **anonymer Login erlaubt** ist. Dies ist ein kritischer Fund.
+*   **Port 22 (SSH):** OpenSSH 8.4p1 auf Debian 11. Standard-Fernzugriff.
+*   **Port 80 (HTTP):** Nginx 1.18.0. Standard-Webserver ohne spezifischen Titel.</p>
+             <p class="recommendation">**Empfehlung (Pentester):**
+    1.  **FTP (Priorität 1):** Untersuchen Sie den anonymen FTP-Zugang. Suchen Sie nach Dateien, Verzeichnissen und Schreibrechten.
+    2.  **HTTP (Priorität 2):** Führen Sie Web-Enumeration durch (Gobuster, Nikto), auch wenn die Startseite uninteressant wirkt. Suchen Sie nach Hinweisen auf die Anwendung.
+    3.  **SSH (Priorität 3):** Halten Sie nach Benutzernamen Ausschau.<br>
+**Empfehlung (Admin):** Deaktivieren Sie anonymen FTP-Zugriff sofort, falls nicht zwingend erforderlich. Wenn benötigt, konfigurieren Sie ihn extrem restriktiv. Halten Sie alle Dienste aktuell und sicher konfiguriert.</p>
+        </section>
+
+        <section id="web-lfi-exploitation">
+            <h2>Web LFI Exploitation & Credential Discovery</h2>
+            <p class="analysis">**Analyse:** Nach der initialen Erkundung wird eine Schwachstelle auf dem Webserver ausgenutzt, um an Konfigurationsdateien und Zugangsdaten zu gelangen. *Hinweis: Die Schritte, die zur Entdeckung dieser LFI/Path-Traversal-Schwachstelle führten (z.B. Gobuster-Scan auf Port 80, der `/music/` fand), fehlen im Log.*</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿Darkspirit)-[~] <span class="comment"><-- Anderer Prompt --></span>
+└─# <span class="command">wget 'http://192.168.2.132/music/?getAlbum&parent=../../&album=var' -O var.zip</span></div> <span class="comment"><-- IP passt nicht! Annahme .158 --></span>
+                     <pre>
+--2022-08-29 19:49:47--  http://192.168.2.158/music/?getAlbum&parent=../../&album=var <span class="comment"><-- Korrigierte IP --></span>
+Verbindungsaufbau zu 192.168.2.158:80 … verbunden.
+HTTP-Anforderung gesendet, auf Antwort wird gewartet … 200 OK
+Länge: nicht spezifiziert [application/zip, application/octet-stream]
+Wird in »var.zip« gespeichert.
+
+var.zip                               [ <=>                                ]   9,13M  --.-KB/s    in 0,04s
+
+2022-08-29 19:49:48 (226 MB/s) - »var.zip« gespeichert [9570009]</pre>
+                 </div>
+            </div>
+             <p class="analysis">**Analyse:** Mit `wget` wird eine URL aufgerufen, die stark nach einer **Local File Inclusion (LFI)** oder **Path Traversal** Schwachstelle aussieht.
+*   Der Pfad `/music/` wurde vermutlich zuvor gefunden.
+*   Der Parameter `getAlbum` löst wahrscheinlich eine Aktion aus.
+*   `parent=../../`: Versucht, zwei Verzeichnisebenen nach oben zu navigieren.
+*   `album=var`: Gibt das Zielverzeichnis `/var` an.
+Die Anwendung scheint den Inhalt des angegebenen Verzeichnisses (`/var`) zu zippen und zum Download anzubieten. *Anmerkung: Die IP-Adresse `.132` im Log ist inkonsistent mit dem Rest, es wird angenommen, dass `.158` gemeint war.*</p>
+             <p class="evaluation">**Bewertung:** Kritische Schwachstelle! LFI/Path Traversal, die zum Download beliebiger Verzeichnisse führt, auf die der Webserver Leserechte hat. Der erfolgreiche Download von `var.zip` bestätigt die Schwachstelle.</p>
+             <p class="recommendation">**Empfehlung (Pentester):** Entpacken und analysieren Sie `var.zip`. Suchen Sie nach Konfigurationsdateien, Skripten, Logdateien oder anderen sensiblen Informationen innerhalb der `/var`-Struktur (insbesondere `/var/www`, `/var/log`, `/var/mail`). Nutzen Sie die LFI, um gezielt andere interessante Verzeichnisse herunterzuladen (z.B. `/etc`, `/home`).<br>**Empfehlung (Admin):** **Beheben Sie die LFI/Path Traversal-Schwachstelle sofort!** Validieren und sanitisieren Sie alle Parameter (`parent`, `album`) rigoros. Beschränken Sie Dateizugriffe auf die vorgesehenen Verzeichnisse (z.B. mit `basename()` und Whitelisting).</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿Darkspirit)-[~]
+└─# <span class="command">unzip var.zip</span></div>
+                    <div class="prompt">┌──(root㉿Darkspirit)-[~/html]
+└─# <span class="command">cd html/music</span></div> <span class="comment"><-- Pfad innerhalb des entpackten 'var' --></span>
+                    <div class="prompt">┌──(root㉿Darkspirit)-[~/html/music]
+└─# <span class="command">cat config.php</span></div>
+                     <pre>
+   
+   $_CONFIG['saveConfig'] = '';
+   $_CONFIG['users'] = array(
+      	    array('<span class="command">admin</span>', '<span class="password">admin</span>', 'true'),
+	    array('<span class="command">guest</span>', '<span class="password">guest</span>', 'false'),
+	    array('<span class="command">aria</span>', '<span class="password">seraphim</span>', 'false'),
+            array('<span class="command">alba</span>', '<span class="password">thehostof</span>', 'false'),
+[...]</pre>
+                     <pre><span class="comment">-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------</span></pre>
+                </div>
+            </div>
+             <p class="analysis">**Analyse:** Das heruntergeladene Archiv `var.zip` wird entpackt. Innerhalb der Verzeichnisstruktur (vermutlich `var/www/html/music`) wird die Datei `config.php` gefunden und ihr Inhalt angezeigt.</p>
+             <p class="evaluation">**Bewertung:** Ein **kritischer Fund** durch Ausnutzung der LFI! Die `config.php` enthält hartkodierte Zugangsdaten im Klartext für mehrere Benutzer: `admin:admin`, `guest:guest`, `aria:seraphim`, `alba:thehostof`.</p>
+             <p class="recommendation">**Empfehlung (Pentester):** Versuchen Sie, sich mit diesen Credentials an verfügbaren Diensten anzumelden, insbesondere SSH (Port 22). Priorisieren Sie `aria` und `alba`.<br>**Empfehlung (Admin):** **Speichern Sie niemals Zugangsdaten im Klartext in Konfigurationsdateien!** Verwenden Sie Umgebungsvariablen oder sicherere Konfigurationsmanagement-Tools. Beheben Sie die LFI-Schwachstelle.</p>
+        </section>
+
+        <section id="initial-access">
+            <h2>Initial Access (SSH as aria)</h2>
+            <p class="analysis">**Analyse:** Nutzung der in `config.php` gefundenen Zugangsdaten für den SSH-Login.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">ssh aria@dance</span></div> <span class="comment"><-- Hostname aus /etc/hosts --></span>
+                     <pre>
+aria@dance's password: <span class="password">********</span> <span class="comment">(seraphim eingegeben)</span>
+Linux dance 5.10.0-8-amd64 #1 SMP Debian 5.10.46-4 (2021-08-03) x86_64
+[...]
+Last login: Tue Sep  7 12:50:06 2021 from 192.168.1.51
+<span class="prompt">aria@dance:~$</span> <span class="password"><-- Login erfolgreich! --></span></pre>
+                 </div>
+            </div>
+             <p class="analysis">**Analyse:** Es wird versucht, sich per SSH als Benutzer `aria` am Zielsystem (`dance`, entspricht `192.168.2.158`) anzumelden. Das Passwort `seraphim` (aus `config.php`) wird verwendet.</p>
+             <p class="evaluation">**Bewertung:** Fantastisch! Der SSH-Login als `aria` ist erfolgreich. Der initiale Zugriff auf das System wurde durch Ausnutzung der LFI und der daraus resultierenden Credentials erlangt.</p>
+             <p class="recommendation">**Empfehlung (Pentester):** Führen Sie Enumeration als `aria` durch: User-Flag suchen, `sudo -l` prüfen, Home-Verzeichnis untersuchen.<br>**Empfehlung (Admin):** LFI beheben, Passwörter ändern, Passwort-Wiederverwendung vermeiden.</p>
+
+             <p class="comment">*(Hinweis: Der zweite SSH-Befehl im Log (`ssh aria@192.168.2.132`) verwendet wieder die falsche IP und ist redundant/ irrelevant.)*</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">aria@dance:~$ <span class="command">cat user.txt</span></div>
+                    <pre><span class="password">godisadj</span></pre> <span class="comment"><-- User Flag --></span>
+                 </div>
+            </div>
+             <p class="analysis">**Analyse:** Im Home-Verzeichnis von `aria` wird die Datei `user.txt` gefunden und ausgelesen.</p>
+             <p class="evaluation">**Bewertung:** User-Flag (`godisadj`) erfolgreich erhalten.</p>
+         </section>
+
+        <section id="privilege-escalation-aria">
+            <h2>Privilege Escalation (aria -> alba)</h2>
+            <p class="analysis">**Analyse:** Als Benutzer `aria` wird versucht, die Rechte zum Benutzer `alba` zu eskalieren, dessen Passwort ebenfalls aus der `config.php` bekannt ist.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">aria@dance:~$ <span class="command"> su -s /bin/bash alba</span></div>
+                    <pre>Password: <span class="password">********</span> <span class="comment">(thehostof eingegeben)</span></pre>
+                     <div class="prompt">alba@dance:/home/aria$ <span class="comment"># Erfolg!</span></div>
+                 </div>
+            </div>
+             <p class="analysis">**Analyse:** Der Befehl `su -s /bin/bash alba` wird verwendet, um zum Benutzer `alba` zu wechseln und dabei direkt eine `/bin/bash`-Shell zu erhalten. Das Passwort `thehostof` (aus `config.php`) wird eingegeben.</p>
+             <p class="evaluation">**Bewertung:** Der Benutzerwechsel ist erfolgreich. Der Angreifer agiert nun als Benutzer `alba`.</p>
+             <p class="recommendation">**Empfehlung (Pentester):** Führen Sie Enumeration als `alba` durch, insbesondere `sudo -l`.<br>**Empfehlung (Admin):** Passwörter ändern, LFI beheben.</p>
+         </section>
+
+        <section id="privilege-escalation-alba">
+            <h2>Privilege Escalation (alba -> root)</h2>
+            <p class="analysis">**Analyse:** Als Benutzer `alba` wird nach dem finalen Weg zur Root-Eskalation gesucht.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                     <div class="prompt">alba@dance:/home/aria$ <span class="command">sudo -l</span></div>
+                     <pre>
+User alba may run the following commands on dance:
+    (<span class="command">root</span>) NOPASSWD: /usr/bin/espeak</pre>
+                     <pre><span class="comment">-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------</span></pre>
+                 </div>
+            </div>
+             <p class="analysis">**Analyse:** Der Befehl `sudo -l` wird als `alba` ausgeführt.</p>
+             <p class="evaluation">**Bewertung:** Eine **kritische Sudo-Regel** wird gefunden: `alba` darf den Befehl `/usr/bin/espeak` als `root` ohne Passwort (`NOPASSWD:`) ausführen. `espeak` ist ein Text-to-Speech-Synthesizer.</p>
+             <p class="recommendation">**Empfehlung (Pentester):** Untersuchen Sie `espeak`. Kann es zum Lesen von Dateien verwendet werden? Prüfen Sie die Optionen (`man espeak`). Die Option `-f <Dateiname>` liest Text aus einer Datei. Da der Befehl als Root ausgeführt wird, kann versucht werden, damit den Inhalt von Root-geschützten Dateien (wie `/root/root.txt`) auszulesen.<br>**Empfehlung (Admin):** **Entfernen Sie diese Sudo-Regel sofort!** Die Ausführung von Programmen wie `espeak`, die Dateiinhalte verarbeiten können, als Root durch einen unprivilegierten Benutzer ist extrem gefährlich und führt oft zu LFI.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                     <div class="prompt">alba@dance:/home/aria$ <span class="command"> sudo /usr/bin/espeak -f /root/root.txt -q -X</span></div>
+                     <pre>Translate '<span class="password">deadcandance</span>'</pre> <span class="password"><-- Root Flag geleakt! --></span>
+                 </div>
+            </div>
+             <p class="analysis">**Analyse:** Der Sudo-Befehl wird ausgeführt, um `espeak` als Root zu starten.
+*   `-f /root/root.txt`: Weist `espeak` an, den Inhalt der Root-Flag-Datei zu lesen.
+*   `-q`: (Quiet) Unterdrückt die normale Sprachausgabe.
+*   `-X`: Gibt die Phonem-Mnemonics aus (was oft auch den Klartext enthält).</p>
+             <p class="evaluation">**Bewertung:** **Root-Eskalation erfolgreich!** Obwohl `espeak` den Text normalerweise vorlesen würde, wird durch die Optionen `-q -X` die Sprachausgabe unterdrückt, aber die Verarbeitung der Datei findet statt. In der Ausgabe "Translate 'deadcandance'" wird der Inhalt der Root-Flag (`deadcandance`) direkt preisgegeben. Dies ist eine klassische LFI über eine unsichere Sudo-Regel.</p>
+             <p class="recommendation">**Empfehlung (Pentester):** Root-Flag `deadcandance` notiert. Ziel erreicht.<br>**Empfehlung (Admin):** Sudo-Regel für `espeak` entfernen. Überprüfen Sie alle Sudo-Regeln auf ähnliche Schwachstellen.</p>
+         </section>
+
+        <section id="proof-of-concept">
+            <h2>Proof of Concept (Sudo Espeak LFI)</h2>
+            <p class="comment">**Kurzbeschreibung:** Der Benutzer `alba` hat via `sudo` das Recht, das Programm `/usr/bin/espeak` als `root` ohne Passwort auszuführen. Das Programm `espeak` besitzt die Option `-f`, um Text aus einer Datei zu lesen und für die Sprachausgabe zu verarbeiten. Da der Befehl als `root` läuft, kann `espeak` auf jede Datei zugreifen, auf die Root Zugriff hat, einschließlich sensibler Dateien wie `/root/root.txt`. Durch geschickte Wahl der Optionen (`-q` für leise, `-X` für Phonem-Ausgabe) kann die eigentliche Sprachausgabe unterdrückt werden, während der Inhalt der gelesenen Datei dennoch in der Textausgabe des Programms erscheint (z.B. in der "Translate"-Zeile). Dies stellt eine Local File Inclusion (LFI)-Schwachstelle dar, die durch die unsichere Sudo-Regel ermöglicht wird.</p>
+            <p class="comment">**Voraussetzungen:** Zugriff als Benutzer `alba`, unsichere Sudo-Regel für `espeak`.</p>
+            <p class="comment">**Schritt-für-Schritt-Anleitung:**</p>
+            <ol>
+                <li>Einloggen als `alba` (oder Wechsel zu `alba` mittels `su`).</li>
+                <li>Ausführen des Befehls: `sudo /usr/bin/espeak -f /pfad/zur/zieldatei -q -X` (z.B. `/root/root.txt`).</li>
+                <li>Analysieren der Textausgabe auf den Inhalt der Zieldatei.</li>
+            </ol>
+            <p class="comment">**Erwartetes Ergebnis:** Der Inhalt der als Root lesbaren Zieldatei wird in der Ausgabe von `espeak` preisgegeben.</p>
+            <p class="comment">**Beweismittel:** Die Sudo-Regel und der erfolgreiche `espeak`-Aufruf, der die Root-Flag ausgibt.</p>
+            <p class="comment">**Risikobewertung:** Hoch. Ermöglicht einem Benutzer mit dieser Sudo-Regel das Auslesen beliebiger Dateien als Root.</p>
+            <p class="comment">**Empfehlungen:** Entfernen Sie die Sudo-Regel für `espeak`. Vergeben Sie Sudo-Rechte nach dem Prinzip der geringsten Rechte und vermeiden Sie Befehle, die Dateiinhalte verarbeiten können, wenn dies nicht absolut notwendig und sicher implementiert ist.</p>
+        </section>
+
+        <section id="flags">
+            <div class="flag-container">
+                <h2 class="flag-heading">Flags</h2>
+                <p class="analysis">**Analyse:** Zusammenfassung der gefundenen Flags.</p>
+
+                 <div class="code-block">
+                    <center>
+                        <div class="terminal"> <!-- Struktur laut Template -->
+                           <div class="flag-command">cat /home/aria/user.txt</div>
+                           <div class="flag-value"><span class="password">godisadj</span></div>
+                        </div>
+                    </center>
+                 </div>
+                 <p class="evaluation">**Bewertung:** User-Flag.</p>
+
+                <div class="code-block">
+                    <center>
+                        <div class="terminal"> <!-- Struktur laut Template -->
+                            <div class="flag-command">sudo /usr/bin/espeak -f /root/root.txt -q -X</div>
+                            <div class="flag-value"><span class="password">deadcandance</span></div>
+                        </div>
+                     </center>
+                </div>
+                <p class="evaluation">**Bewertung:** Root-Flag.</p>
+            </div>
+        </section>
+ 
+    <footer class="footer">
+        <p>DarkSpirit - Cyber Security Reports</p>
+        <p>Berichtsdatum: 20. Oktober 2022</p> <!-- Datum aus Nmap Scan -->
+    </footer>
+</body>
+</html>
